@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-web
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-web
+  template:
+    metadata:
+      labels:
+        app: python-web
+    spec:
+      serviceAccountName: python-web-sa
+      containers:
+      - name: app
+        image: python-web:vulnerable
+        ports:
+        - containerPort: 5000
+        env:
+        - name: POSTGRES_PASSWORD
+          value: "flag{n3v3r_us3_3nv_f0r_s3cr3ts}"
+        - name: API_KEY
+          value: "admin_key_12345"
+        - name: FLAG1
+          value: "flag{n3v3r_us3_3nv_f0r_s3cr3ts}"
+        volumeMounts:
+        - name: secret-volume
+          mountPath: /app/secrets
+          readOnly: false  # Intentionally writable
+        - name: config-volume
+          mountPath: /config
+      volumes:
+      - name: secret-volume
+        secret:
+          secretName: database-creds
+          defaultMode: 0777  # Bad permissions!
+      - name: config-volume
+        configMap:
+          name: app-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-web
+  namespace: production
+spec:
+  type: NodePort
+  selector:
+    app: python-web
+  ports:
+  - port: 5000
+    targetPort: 5000
+    nodePort: 30080
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: database-creds
+  namespace: production
+type: Opaque
+stringData:
+  username: admin
+  password: "flag{m0unt3d_s3cr3ts_w1th_wr0ng_p3rm1ss10ns}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: production
+data:
+  app-config.json: |
+    {
+      "database": "postgres://admin:secretpass@postgres-db:5432/app",
+      "flag": "flag{c0nf1gm4ps_ar3nt_f0r_cr3ds}",
+      "api_endpoint": "http://postgres-db:5432"
+    }

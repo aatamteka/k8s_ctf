@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csharp-web
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csharp-web
+  template:
+    metadata:
+      labels:
+        app: csharp-web
+    spec:
+      serviceAccountName: default  # Using default SA (bad practice)
+      containers:
+      - name: app
+        image: csharp-web:vulnerable
+        ports:
+        - containerPort: 80
+        securityContext:
+          privileged: true  # CRITICAL VULNERABILITY
+          runAsUser: 0
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: csharp-web
+  namespace: production
+spec:
+  type: NodePort
+  selector:
+    app: csharp-web
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30081

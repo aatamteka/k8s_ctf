@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  namespace: production
+type: Opaque
+stringData:
+  username: postgres
+  password: "flag{s3cr3ts_spr34d_l1k3_w1ldf1r3}"
+  database: appdb
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: production
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(50) NOT NULL,
+      email VARCHAR(100) NOT NULL,
+      api_key VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    INSERT INTO users (username, email, api_key) VALUES 
+      ('admin', 'admin@company.com', 'flag{d4tab4s3_h4s_s3cr3ts_t00}'),
+      ('developer', 'dev@company.com', 'dev_key_12345'),
+      ('service_account', 'service@company.com', 'sa_prod_key_xyz789');
+    
+    CREATE TABLE IF NOT EXISTS app_secrets (
+      id SERIAL PRIMARY KEY,
+      key_name VARCHAR(100) NOT NULL,
+      key_value TEXT NOT NULL,
+      description TEXT
+    );
+    
+    INSERT INTO app_secrets (key_name, key_value, description) VALUES
+      ('aws_access_key', 'AKIAIOSFODNN7EXAMPLE', 'AWS credentials for S3 access'),
+      ('stripe_api_key', 'sk_live_flag{p4ym3nt_k3ys_1n_db}', 'Stripe payment processing'),
+      ('jwt_secret', 'super_secret_jwt_key_do_not_share', 'JWT signing key');
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-db
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: database
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+      volumes:
+      - name: postgres-storage
+        emptyDir: {}
+      - name: init-script
+        configMap:
+          name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: production
+spec:
+  selector:
+    app: postgres-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP

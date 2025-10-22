@@ -1,0 +1,34 @@
+# CTF Detection Rules - Kubernetes Security
+
+# ====================================
+# SSTI (Server-Side Template Injection) Detection
+# ====================================
+alert http any any -> any any (msg:"CTF: SSTI Jinja2 Template Injection"; content:"{{"; http_uri; content:"}}"; distance:0; sid:1000001; rev:1;)
+alert http any any -> any any (msg:"CTF: SSTI in POST body"; content:"{{"; http_client_body; content:"}}"; distance:0; sid:1000002; rev:1;)
+alert http any any -> any any (msg:"CTF: SSTI __class__ usage"; content:"__class__"; http_client_body; sid:1000003; rev:1;)
+alert http any any -> any any (msg:"CTF: SSTI subprocess usage"; content:"subprocess"; http_client_body; sid:1000004; rev:1;)
+alert http any any -> any any (msg:"CTF: SSTI os.popen usage"; content:"os.popen"; http_client_body; sid:1000005; rev:1;)
+
+# ====================================
+# JSON Deserialization Attacks
+# ====================================
+alert http any any -> any any (msg:"CTF: JSON Deserialization $type detected"; content:"$type"; http_client_body; sid:1000010; rev:1;)
+alert http any any -> any any (msg:"CTF: CommandExecutor gadget"; content:"CommandExecutor"; http_client_body; sid:1000011; rev:1;)
+alert http any any -> any any (msg:"CTF: Process gadget chain"; content:"System.Diagnostics.Process"; http_client_body; sid:1000012; rev:1;)
+alert http any any -> any any (msg:"CTF: VulnerableApp namespace usage"; content:"VulnerableApp"; http_client_body; sid:1000013; rev:1;)
+
+# ====================================
+# Reverse Shell Detection
+# ====================================
+alert http any any -> any any (msg:"CTF: Reverse shell command bash -i"; content:"bash -i"; http_client_body; sid:1000020; rev:1;)
+alert http any any -> any any (msg:"CTF: /dev/tcp usage"; content:"/dev/tcp"; http_client_body; sid:1000021; rev:1;)
+alert http any any -> any any (msg:"CTF: nc reverse shell"; content:"nc "; http_client_body; content:" -e "; distance:0; sid:1000022; rev:1;)
+alert http any any -> any any (msg:"CTF: Python reverse shell"; content:"import socket"; http_client_body; content:"subprocess"; distance:0; sid:1000023; rev:1;)
+
+# ====================================
+# Command Execution
+# ====================================
+alert http any any -> any any (msg:"CTF: Shell command execution"; content:"sh -c"; http_client_body; sid:1000030; rev:1;)
+alert http any any -> any any (msg:"CTF: Bash command execution"; content:"bash -c"; http_client_body; sid:1000031; rev:1;)
+alert http any any -> any any (msg:"CTF: Touch command"; content:"touch "; http_client_body; sid:1000032; rev:1;)
+alert http any any -> any any (msg:"CTF: Whoami command"; content:"whoami"; http_client_body; sid:1000033; rev:1;)

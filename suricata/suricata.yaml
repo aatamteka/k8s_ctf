@@ -1,0 +1,54 @@
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: "any"
+    EXTERNAL_NET: "any"
+
+default-log-dir: /var/log/suricata/
+
+# BPF filter to ignore SSH traffic to/from this host
+bpf-filter: "not port 22"
+
+# Linux high speed capture support
+af-packet:
+  - interface: enp0s3
+
+outputs:
+  - fast:
+      enabled: yes
+      filename: fast.log
+      append: yes
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert:
+            payload: yes
+            payload-printable: yes
+            packet: yes
+        - http:
+            extended: yes
+
+pcap-file:
+  checksum-checks: no
+
+app-layer:
+  protocols:
+    http:
+      enabled: yes
+      memcap: 64mb
+
+logging:
+  default-log-level: notice
+  outputs:
+    - console:
+        enabled: yes
+    - file:
+        enabled: yes
+        level: info
+        filename: suricata.log
+
+rule-files:
+  - /etc/suricata/rules/local.rules
