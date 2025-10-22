@@ -32,6 +32,23 @@ You are a cybersecurity professional who has recently taken over this kubernetes
 ## Quick Start
 
 ```bash
+# 0. Have installed Debian in a VM on VirtualBox or VMWare (or something) where you can run docker inside the VM. 
+# prep the VM (as root):
+apt install jq suricata jq net-tools rsyslog ca-certificates curl gnupg
+
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube_latest_amd64.deb
+dpkg -i minikube_latest_amd64.deb
+
+curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" |    tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update
+apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# grant docker permissions to the user you will run the CTF as and your blue team user(s)
+usermod -aG docker vbox
+
 # 1. Clone and navigate to directory
 cd k8s_ctf
 

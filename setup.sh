@@ -5,6 +5,8 @@ set -e
 # Assumes docker, minikube, suricata, kubectl, jq, python3 are installed
 #
 
+# cd to location of this repo
+
 minikube start --driver=docker --cpus=2 --memory=6144 \
   --extra-config=apiserver.audit-log-path=/var/log/kubeaudit.log \
   --extra-config=apiserver.audit-log-maxage=30
