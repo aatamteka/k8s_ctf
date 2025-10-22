@@ -62,7 +62,7 @@ production namespace:
 │   ├── Vulnerability: Insecure JSON Deserialization (Newtonsoft.Json)
 │   ├── Privileged container with docker.sock mounted
 │   └── Default service account
-├── postgres-db
+└── postgres-db
     └── PostgreSQL database with secrets
 ```
 
@@ -94,13 +94,298 @@ Need help? Check `solutions/hints.md` for progressive hints organized by phase.
 
 Complete walkthrough available in `solutions/WALKTHROUGH.md` after attempting the challenge.
 
-## Network Monitoring with Suricata (Blue Team)
+## Blue Team: Layered Defense Strategy
 
-This CTF includes an optional Suricata deployment for detecting attacks and monitoring internal cluster traffic on the minikube host itself. The blue team is encouraged to experiment with manipulating the sample Suricata rules and modify the kubernetes environment to try to mitigate the attacks. 
+This CTF provides hands-on experience implementing defense-in-depth for Kubernetes environments. The Blue Team should work through multiple defensive layers while maintaining application availability.
 
-The file suricata/INSTALL.md provides setup instructions for the VM running minikube with the provided Suricata config.
+### Learning Objectives
 
-## Student Handout Template
+- Understand detection vs prevention trade-offs
+- Implement network-based monitoring (Suricata IDS)
+- Perform security assessments (kube-bench, kube-hunter)
+- Apply security hardening incrementally
+- Balance security with operational requirements
+
+---
+
+## Defensive Layers
+
+### Layer 1: Visibility & Detection (Start Here)
+
+**Goal:** Establish baseline monitoring without disrupting services
+
+#### 1.1 Network-Level Detection with Suricata
+
+Examine Suricata IDS on the host to detect attack patterns (see separate instructions for deployment steps):
+
+```bash
+less /etc/suricata/suricata.yaml
+less /etc/suricata/rules/local.rules
+```
+
+**Detection Patterns to Watch For:**
+- Unauthorized secret access attempts
+- ServiceAccount token usage from unexpected IPs
+- Privilege escalation via role bindings
+- Pod exec/attach operations
+
+---
+
+### Layer 2: Vulnerability Assessment
+
+**Goal:** Identify security weaknesses before Red Team exploits them
+
+#### 2.1 CIS Benchmark Compliance with kube-bench
+
+Run Aqua Security's kube-bench to check against CIS Kubernetes Benchmarks:
+
+```bash
+# Run on minikube host
+kubectl apply -f https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
+
+# View results
+kubectl logs -f job/kube-bench
+
+# Or run locally with Docker
+docker run --rm -v `pwd`:/host aquasec/kube-bench:latest install
+./kube-bench
+```
+
+**Learning Activities:**
+- Review FAIL items in the report
+- Categorize findings by severity
+- Identify which findings relate to CTF vulnerabilities
+- Attempt to remediate without breaking applications
+
+**Key Findings to Investigate:**
+- Privileged containers (csharp-web)
+- Insecure pod security policies
+- Overly permissive RBAC
+- Mounted host paths (docker.sock)
+
+#### 2.2 Attack Surface Discovery with kube-hunter
+
+Run Aqua Security's kube-hunter to identify exposed attack vectors:
+
+```bash
+# Passive scanning (safe for production)
+docker run -it --rm aquasec/kube-hunter --pod
+
+# Remote scanning (from student LAN perspective)
+docker run -it --rm aquasec/kube-hunter --remote <minikube-ip>
+
+# Active hunting (attempts exploits - use carefully)
+docker run -it --rm aquasec/kube-hunter --remote <minikube-ip> --active
+```
+
+**Learning Activities:**
+- Compare passive vs active scan results
+- Identify which vulnerabilities match Red Team attack paths
+- Prioritize findings based on exploitability
+- Document attack vectors discovered
+
+---
+
+### Layer 3: Preventive Controls
+
+**Goal:** Block attacks while maintaining service availability
+
+#### 3.1 Network Policies
+
+Implement microsegmentation with NetworkPolicies:
+
+```bash
+# Review existing policies
+kubectl get networkpolicies -n production
+
+# Example: Restrict python-web egress
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: python-web-egress
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: python-web
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres-db
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+EOF
+```
+
+**Learning Activities:**
+- Block reverse shell egress while allowing database access
+- Test that applications still function
+- Monitor dropped connections
+- Document what attacks are prevented vs detected
+
+#### 3.2 Pod Security Standards
+
+Apply Pod Security Standards to enforce baseline security:
+
+```bash
+# Label namespace with pod security level
+kubectl label namespace production \
+  pod-security.kubernetes.io/enforce=baseline \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted
+
+# Observe which pods violate standards
+kubectl get pods -n production
+```
+
+**Note:** This will break csharp-web due to privileged: true. How can you balance security vs CTF functionality?
+
+#### 3.3 RBAC Hardening
+
+Review and restrict ServiceAccount permissions:
+
+```bash
+# Audit current permissions
+kubectl auth can-i --list --as=system:serviceaccount:production:python-web-sa
+
+# Review role bindings
+kubectl get rolebindings,clusterrolebindings -A -o wide | grep python-web-sa
+
+# Apply principle of least privilege
+kubectl edit role python-web-role -n production
+```
+
+**Challenge:** Can you prevent secret access while maintaining app functionality?
+
+---
+
+### Layer 4: Container Security
+
+**Goal:** Harden container runtime and image security
+
+#### 4.1 Image Scanning
+
+Scan container images for vulnerabilities:
+
+```bash
+# Using Trivy
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy image python-web:vulnerable
+
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy image csharp-web:vulnerable
+```
+
+### Layer 5: Incident Response
+
+**Goal:** Practice detection, response, and recovery
+
+#### 5.1 Real-Time Monitoring Dashboard
+
+Create a simple monitoring script:
+
+```bash
+#!/bin/bash
+# blue-team-monitor.sh
+while true; do
+  clear
+  echo "=== Blue Team Dashboard ==="
+  echo "Time: $(date)"
+  echo
+  echo "--- Suricata Alerts (last 5) ---"
+  cat /var/log/suricata/eve.json | tail -n 5 | jq -r 'select(.event_type == "alert") | "\(.timestamp) | \(.alert.signature) | \(.src_ip):\(.src_port) -> \(.dest_ip):\(.dest_port) | \(.http.http_method // "N/A") \(.http.url // "N/A")"'
+  echo
+  echo "--- Kubernetes Control Plane Logs ---"
+  kubectl logs -n kube-system $(kubectl get pods -n kube-system -l component=kube-apiserver -o name) | tail -n5
+  echo
+  echo "--- Recent API Activity ---"
+  kubectl get events -n production --sort-by='.lastTimestamp' | tail -5
+  sleep 10
+done
+```
+
+#### 5.2 Response Procedures
+
+When an attack is detected:
+
+1. **Contain:** Isolate compromised pod with NetworkPolicy
+2. **Investigate:** Collect logs, exec history, network connections
+3. **Eradicate:** Roll back to known-good state
+4. **Recover:** Redeploy with additional hardening
+5. **Learn:** Document what was missed and improve defenses
+
+```bash
+# Quick isolation
+kubectl label pod <pod-name> -n production quarantine=true
+
+# Apply deny-all NetworkPolicy to quarantined pods
+kubectl apply -f network-policies/quarantine.yaml
+
+# Collect forensics
+kubectl logs <pod-name> -n production > incident-logs.txt
+kubectl describe pod <pod-name> -n production > incident-details.txt
+
+# Safe recovery
+kubectl rollout restart deployment/<app-name> -n production
+```
+
+---
+
+## Blue Team Student Handout
+
+```
+=== Kubernetes Security CTF - Student Instructions BLUE TEAM ===
+
+Your Mission: Defend the Kubernetes cluster while maintaining service availability
+
+Environment Access:
+  SSH: ssh <username>@<minikube VM>
+  Suricata Logs: /var/log/suricata/
+  kubectl access: Configured on host
+
+Phase 1: Establish Visibility 
+  - Configure Suricata IDS
+  - Enable Kubernetes audit logging
+  - Create monitoring dashboard
+
+Phase 2: Assess Vulnerabilities 
+  - Run kube-bench and analyze findings
+  - Run kube-hunter to map attack surface
+  - Document top 5 critical issues
+
+Phase 3: Implement Defenses 
+  - Apply NetworkPolicies
+  - Harden RBAC permissions
+  - Enforce Pod Security Standards
+  - Balance security vs functionality
+
+Phase 4: Detect & Respond 
+  - Monitor for Red Team activity
+  - Practice incident response
+  - Tune detection rules
+  - Document lessons learned
+
+Tool Suggestions:
+  - Suricata IDS (network detection)
+  - kube-bench (CIS compliance)
+  - kube-hunter (vulnerability scanning)
+  - kubectl (cluster management)
+  - Trivy (image scanning)
+
+Good luck!
+```
+
+## Red Team Student Handout
 
 Provide this to students:
 
@@ -134,19 +419,6 @@ Setup Your Attack Environment:
 Hints: Available in the hints/ directory
 
 Good luck!
-```
-
-### Monitoring Student Activity
-
-Track who's doing what (optional):
-
-```bash
-# Enable audit logging
-minikube start --driver=docker --cpus=2 --memory=8192 \
-  --extra-config=apiserver.audit-log-path=/var/log/kubernetes/audit.log
-
-# View logs
-kubectl logs -n kube-system $(kubectl get pods -n kube-system -l component=kube-apiserver -o name)
 ```
 
 ## Cleanup After Class
